@@ -381,6 +381,12 @@ func ServeConn(conn io.ReadWriteCloser) {
 	DefaultServer.ServeConn(conn)
 }
 
+// ServeCodec is like ServeConn but uses the specified codec to
+// decode requests and encode responses.
+func ServeCodec(codec ServerCodec) {
+	DefaultServer.ServeCodec(codec)
+}
+
 // Register publishes the receiver's methods in the DefaultServer.
 func Register(cmd uint32, function interface{}) error { return DefaultServer.Register(cmd, function) }
 
