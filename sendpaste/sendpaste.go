@@ -1,10 +1,17 @@
 package sendpaste
 
-type PasteData struct {
+import (
+	"time"
+)
+
+type SendData struct {
 	Data     []byte
 	FileName string
 }
 
-type PasteID struct {
-	ID int64
+type PasteData struct {
+	Data       []byte
+	FileName   string
+	CreateTime time.Time
+	ID         int64
 }

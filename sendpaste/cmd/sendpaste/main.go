@@ -9,34 +9,34 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"path/filepath"
 )
 
 func savePaste(c *rpc.Client) {
-	var arg sendpaste.PasteData
-	var reply sendpaste.PasteID
+	var arg sendpaste.SendData
+	var reply int64
 	arg.Data = []byte(os.Args[1])
 	err := c.Call("Paste.Add", &arg, &reply)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Paste Success:%d\n", reply.ID)
+	fmt.Printf("Paste Success:%d\n", reply)
 }
 
 func saveFile(c *rpc.Client) {
-	var arg sendpaste.PasteData
-	var reply sendpaste.PasteID
+	var arg sendpaste.SendData
+	var reply int64
 	var err error
 	arg.Data, err = ioutil.ReadFile(sendFile)
 	if err != nil {
 		log.Fatal(err)
 	}
-	arg.FileName = sendFile
+	arg.FileName = filepath.Base(sendFile)
 	err = c.Call("Paste.Add", &arg, &reply)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Paste Success:%d\n", reply.ID)
-
+	fmt.Printf("Paste Success:%d\n", reply)
 }
 
 func getPaste(c *rpc.Client, count int) {
@@ -58,7 +58,25 @@ func getPaste(c *rpc.Client, count int) {
 	return
 }
 
+func getList(c *rpc.Client, count int) {
+	var reply []*sendpaste.PasteData
+	err := c.Call("Paste.List", count, &reply)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for i := range reply {
+		pd := reply[i]
+		if len(pd.FileName) > 0 {
+			fmt.Printf("file: %s, id: %d\n", pd.FileName, pd.ID)
+		} else {
+			fmt.Printf("paste: %s\n", string(pd.Data))
+		}
+	}
+	return
+}
+
 var enableGet bool
+var enableList bool
 var sendFile string
 
 type pasteConfig struct {
@@ -86,6 +104,7 @@ func readPasteConfig() *pasteConfig {
 
 func main() {
 	flag.BoolVar(&enableGet, "g", false, "get recent paste data")
+	flag.BoolVar(&enableList, "l", false, "get recent paste list")
 	flag.StringVar(&sendFile, "f", "", "paste file")
 	flag.Parse()
 
@@ -99,6 +118,10 @@ func main() {
 
 	if len(os.Args) < 2 {
 		getPaste(c, 1)
+		return
+	}
+	if enableList {
+		getList(c, 10)
 		return
 	}
 	if len(sendFile) > 0 {
