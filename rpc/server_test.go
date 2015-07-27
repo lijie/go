@@ -25,7 +25,7 @@ func Fail(codec ServerCodec, arg *AddParams, reply *int) error {
 func Timeout(codec ServerCodec, arg *AddParams, reply *int) error {
 	*reply = arg.A + arg.B
 	time.Sleep(1 * time.Second)
-	return Error(777)
+	return nil
 }
 
 func runServer(t *testing.T) {
@@ -99,5 +99,18 @@ func TestTimeoutCall(t *testing.T) {
 	err := c.CallWithTimeout(102, &param, &reply, 500*time.Millisecond)
 	if err != ErrTimeout {
 		t.Fatal("should return err:", ErrTimeout, "but:", err)
+	}
+}
+
+func TestTimeoutCall2(t *testing.T) {
+	runServer(t)
+	c := runClient(t)
+	defer c.Close()
+
+	param := &AddParams{100, 200}
+	reply := 0
+	err := c.CallWithTimeout(102, &param, &reply, 2*time.Second)
+	if err != nil {
+		t.Fatal("should return nil, but:", err)
 	}
 }
