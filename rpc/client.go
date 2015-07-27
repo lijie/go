@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // ServerError represents an error that has been returned from
@@ -24,10 +25,12 @@ func (e ServerError) Error() string {
 }
 
 var ErrShutdown = errors.New("connection is shut down")
+var ErrTimeout = errors.New("operation is timeout")
 
 // Call represents an active RPC.
 type Call struct {
 	Cmd   uint32      // The name of the service and method to call.
+	Seq   uint32      // sequence of current call
 	Args  interface{} // The argument to the function (*struct).
 	Reply interface{} // The reply from the function (*struct).
 	Error error       // After completion, the error status.
@@ -81,6 +84,7 @@ func (client *Client) send(call *Call) {
 		return
 	}
 	seq := client.seq
+	call.Seq = seq
 	client.seq++
 	client.pending[seq] = call
 	client.mutex.Unlock()
@@ -314,4 +318,25 @@ func (client *Client) Go(cmd uint32, args interface{}, reply interface{}, done c
 func (client *Client) Call(cmd uint32, args interface{}, reply interface{}) error {
 	call := <-client.Go(cmd, args, reply, make(chan *Call, 1)).Done
 	return call.Error
+}
+
+// Call invokes the named function, waits for it to complete, and returns its error status.
+// If timeout occurs, it returns ErrTimeout
+func (client *Client) CallWithTimeout(cmd uint32, args interface{}, reply interface{}, d time.Duration) error {
+	timer := time.NewTimer(d)
+	call := client.Go(cmd, args, reply, make(chan *Call, 1))
+
+	var err error
+	select {
+	case call = <-call.Done:
+		err = call.Error
+	case _ = <-timer.C:
+		err = ErrTimeout
+		// delete pending call
+		client.mutex.Lock()
+		delete(client.pending, call.Seq)
+		client.mutex.Unlock()
+	}
+
+	return err
 }

@@ -3,6 +3,7 @@ package rpc
 import (
 	"net"
 	"testing"
+	"time"
 )
 
 var runserver = false
@@ -21,6 +22,12 @@ func Fail(codec ServerCodec, arg *AddParams, reply *int) error {
 	return Error(777)
 }
 
+func Timeout(codec ServerCodec, arg *AddParams, reply *int) error {
+	*reply = arg.A + arg.B
+	time.Sleep(1 * time.Second)
+	return Error(777)
+}
+
 func runServer(t *testing.T) {
 	if runserver {
 		return
@@ -28,6 +35,7 @@ func runServer(t *testing.T) {
 	var err error
 	err = Register(100, Add)
 	err = Register(101, Fail)
+	err = Register(102, Timeout)
 	l, err := net.Listen("tcp", ":20003")
 	if err != nil {
 		t.Fatal(err)
@@ -78,5 +86,18 @@ func TestFailCall(t *testing.T) {
 	err := c.Call(101, &param, &reply)
 	if err == nil || err.Error() != "777" {
 		t.Fatal("should return err 777")
+	}
+}
+
+func TestTimeoutCall(t *testing.T) {
+	runServer(t)
+	c := runClient(t)
+	defer c.Close()
+
+	param := &AddParams{100, 200}
+	reply := 0
+	err := c.CallWithTimeout(102, &param, &reply, 500*time.Millisecond)
+	if err != ErrTimeout {
+		t.Fatal("should return err:", ErrTimeout, "but:", err)
 	}
 }
