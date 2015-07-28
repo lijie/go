@@ -114,3 +114,31 @@ func TestTimeoutCall2(t *testing.T) {
 		t.Fatal("should return nil, but:", err)
 	}
 }
+
+func TestTimeoutCall3(t *testing.T) {
+	runServer(t)
+	c := runClient(t)
+	defer c.Close()
+
+	param := &AddParams{100, 200}
+	reply := 0
+	call := c.GoWithTimeout(102, &param, &reply, make(chan *Call, 1), 500*time.Second)
+	_ = <-call.Done
+	if call.Error != nil {
+		t.Fatal("should return err:", ErrTimeout, "but:", call.Error)
+	}
+}
+
+func TestTimeoutCall4(t *testing.T) {
+	runServer(t)
+	c := runClient(t)
+	defer c.Close()
+
+	param := &AddParams{100, 200}
+	reply := 0
+	call := c.GoWithTimeout(102, &param, &reply, make(chan *Call, 1), 2*time.Second)
+	_ = <-call.Done
+	if call.Error != nil {
+		t.Fatal("should return nil, but:", call.Error)
+	}
+}

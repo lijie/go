@@ -35,6 +35,7 @@ type Call struct {
 	Reply interface{} // The reply from the function (*struct).
 	Error error       // After completion, the error status.
 	Done  chan *Call  // Strobes when call is complete.
+	timer *time.Timer
 }
 
 // Client represents an RPC Client.
@@ -173,6 +174,9 @@ func (client *Client) input() {
 }
 
 func (call *Call) done() {
+	if call.timer != nil {
+		call.timer.Stop()
+	}
 	select {
 	case call.Done <- call:
 		// ok
@@ -314,6 +318,24 @@ func (client *Client) Go(cmd uint32, args interface{}, reply interface{}, done c
 	return call
 }
 
+func (client *Client) GoWithTimeout(cmd uint32, args interface{}, reply interface{}, done chan *Call, d time.Duration) *Call {
+	call := client.Go(cmd, args, reply, done)
+	call.timer = time.AfterFunc(d, func() {
+		var ok bool
+		// delete pending call
+		client.mutex.Lock()
+		if _, ok = client.pending[call.Seq]; ok {
+			delete(client.pending, call.Seq)
+		}
+		client.mutex.Unlock()
+		if ok {
+			call.Error = ErrTimeout
+			call.done()
+		}
+	})
+	return call
+}
+
 // Call invokes the named function, waits for it to complete, and returns its error status.
 func (client *Client) Call(cmd uint32, args interface{}, reply interface{}) error {
 	call := <-client.Go(cmd, args, reply, make(chan *Call, 1)).Done
@@ -323,14 +345,14 @@ func (client *Client) Call(cmd uint32, args interface{}, reply interface{}) erro
 // Call invokes the named function, waits for it to complete, and returns its error status.
 // If timeout occurs, it returns ErrTimeout
 func (client *Client) CallWithTimeout(cmd uint32, args interface{}, reply interface{}, d time.Duration) error {
-	timer := time.NewTimer(d)
 	call := client.Go(cmd, args, reply, make(chan *Call, 1))
+	call.timer = time.NewTimer(d)
 
 	var err error
 	select {
 	case call = <-call.Done:
 		err = call.Error
-	case _ = <-timer.C:
+	case _ = <-call.timer.C:
 		err = ErrTimeout
 		// delete pending call
 		client.mutex.Lock()
