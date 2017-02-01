@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"bufio"
+	"context"
 	"encoding/gob"
 	"encoding/json"
 	"errors"
@@ -262,7 +263,7 @@ func (c *gobServerCodec) Close() error {
 // The caller typically invokes ServeConn in a go statement.
 // ServeConn uses the gob wire format (see package gob) on the
 // connection.  To use an alternate codec, use ServeCodec.
-func (server *Server) ServeConn(conn io.ReadWriteCloser) {
+func (server *Server) ServeConn(ctx context.Context, conn io.ReadWriteCloser) {
 	buf := bufio.NewWriter(conn)
 	srv := &gobServerCodec{
 		rwc:    conn,
@@ -270,14 +271,14 @@ func (server *Server) ServeConn(conn io.ReadWriteCloser) {
 		enc:    gob.NewEncoder(buf),
 		encBuf: buf,
 	}
-	server.ServeCodec(srv)
+	server.ServeCodec(ctx, srv)
 }
 
 // ServeCodec is like ServeConn but uses the specified codec to
 // decode requests and encode responses.
-func (server *Server) ServeCodec(codec ServerCodec) {
+func (server *Server) ServeCodec(ctx context.Context, codec ServerCodec) {
 	sending := new(sync.Mutex)
-	arg1 := reflect.ValueOf(codec)
+	arg1 := reflect.ValueOf(ctx)
 	for {
 		mtype, req, argv, replyv, keepReading, err := server.readRequest(codec)
 		if err != nil {
@@ -297,6 +298,61 @@ func (server *Server) ServeCodec(codec ServerCodec) {
 		go server.call(sending, mtype, req, arg1, argv, replyv, codec)
 	}
 	codec.Close()
+}
+
+// test
+type PendingCall struct {
+	sending *sync.Mutex
+	mtype   *methodType
+	req     *Request
+	arg1    reflect.Value
+	argv    reflect.Value
+	replyv  reflect.Value
+	codec   ServerCodec
+}
+
+// test
+func (server *Server) ServeCodec2(ctx context.Context, codec ServerCodec) {
+	sending := new(sync.Mutex)
+	arg1 := reflect.ValueOf(ctx)
+	ch := make(chan *PendingCall, 1024)
+	go server.callWithChan(ch)
+	for {
+		mtype, req, argv, replyv, keepReading, err := server.readRequest(codec)
+		if err != nil {
+			if debugLog && err != io.EOF {
+				log.Println("rpc:", err)
+			}
+			if !keepReading {
+				break
+			}
+			// send a response if we actually managed to read a header.
+			if req != nil {
+				server.sendResponse(sending, req, invalidRequest, codec, err)
+				server.freeRequest(req)
+			}
+			continue
+		}
+		ch <- &PendingCall{
+			sending: sending,
+			mtype:   mtype,
+			req:     req,
+			arg1:    arg1,
+			argv:    argv,
+			replyv:  replyv,
+			codec:   codec,
+		}
+		// go server.call(sending, mtype, req, arg1, argv, replyv, codec)
+	}
+	codec.Close()
+}
+
+// test
+func (server *Server) callWithChan(ch chan *PendingCall) {
+	for {
+		call := <-ch
+		server.call(call.sending, call.mtype, call.req, call.arg1, call.argv, call.replyv, call.codec)
+	}
 }
 
 // A value sent as a placeholder for the server's response value when the server
@@ -378,13 +434,13 @@ func (server *Server) Register(cmd uint32, function interface{}) error {
 // ServeConn uses the gob wire format (see package gob) on the
 // connection.  To use an alternate codec, use ServeCodec.
 func ServeConn(conn io.ReadWriteCloser) {
-	DefaultServer.ServeConn(conn)
+	DefaultServer.ServeConn(context.Background(), conn)
 }
 
 // ServeCodec is like ServeConn but uses the specified codec to
 // decode requests and encode responses.
 func ServeCodec(codec ServerCodec) {
-	DefaultServer.ServeCodec(codec)
+	DefaultServer.ServeCodec(context.Background(), codec)
 }
 
 // Register publishes the receiver's methods in the DefaultServer.
