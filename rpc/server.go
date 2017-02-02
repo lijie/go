@@ -311,12 +311,14 @@ type PendingCall struct {
 	codec   ServerCodec
 }
 
+func (pc *PendingCall) Context() context.Context {
+	return pc.arg1.Interface().(context.Context)
+}
+
 // test
-func (server *Server) ServeCodec2(ctx context.Context, codec ServerCodec) {
+func (server *Server) ServeCodec2(ctx context.Context, codec ServerCodec, ch chan interface{}) {
 	sending := new(sync.Mutex)
 	arg1 := reflect.ValueOf(ctx)
-	ch := make(chan *PendingCall, 1024)
-	go server.callWithChan(ch)
 	for {
 		mtype, req, argv, replyv, keepReading, err := server.readRequest(codec)
 		if err != nil {
@@ -348,12 +350,18 @@ func (server *Server) ServeCodec2(ctx context.Context, codec ServerCodec) {
 }
 
 // test
-func (server *Server) callWithChan(ch chan *PendingCall) {
-	for {
-		call := <-ch
-		server.call(call.sending, call.mtype, call.req, call.arg1, call.argv, call.replyv, call.codec)
-	}
+func (server *Server) Call(pc interface{}) {
+	call := pc.(*PendingCall)
+	server.call(call.sending, call.mtype, call.req, call.arg1, call.argv, call.replyv, call.codec)
 }
+
+// test
+// func (server *Server) callWithChan(ch chan *PendingCall) {
+// 	for {
+// 		call := <-ch
+// 		server.call(call.sending, call.mtype, call.req, call.arg1, call.argv, call.replyv, call.codec)
+// 	}
+// }
 
 // A value sent as a placeholder for the server's response value when the server
 // receives an invalid request. It is never decoded by the client since the Response
