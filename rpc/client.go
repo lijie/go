@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -51,6 +52,7 @@ type Client struct {
 	mutex    sync.Mutex // protects following
 	seq      uint32
 	pending  map[uint32]*Call
+	ntf      map[uint32]reflect.Type
 	closing  bool // user has called Close
 	shutdown bool // server has told us to stop
 }
@@ -122,6 +124,16 @@ func (client *Client) input() {
 		client.mutex.Unlock()
 
 		switch {
+		case seq == 0:
+			if ntf_typ, ok := client.ntf[response.Cmd]; ok {
+				ntf_val := reflect.New(ntf_typ)
+				err = client.codec.ReadResponseBody(ntf_val)
+				if err != nil {
+					err = errors.New("reading error ntf body: " + err.Error())
+				}
+			} else {
+				// unknow ntf, just discard...
+			}
 		case call == nil:
 			// We've got no pending call. That usually means that
 			// WriteRequest partially failed, and call was already
@@ -205,6 +217,7 @@ func NewClientWithCodec(codec ClientCodec) *Client {
 	client := &Client{
 		codec:   codec,
 		pending: make(map[uint32]*Call),
+		ntf:     make(map[uint32]reflect.Type),
 	}
 	go client.input()
 	return client
@@ -361,4 +374,9 @@ func (client *Client) CallWithTimeout(cmd uint32, args interface{}, reply interf
 	}
 
 	return err
+}
+
+func (client *Client) OnNotify(cmd uint32, reply interface{}) {
+	typ := reflect.TypeOf(reply)
+	client.ntf[cmd] = typ
 }
